@@ -66,106 +66,68 @@ def preprocess_order(items,boxs):
 
 
 def greedy_pack(items, boxes):
-    """优化后的贪心装箱算法"""
-    items, boxes = preprocess_order(items, boxes)
+    # 定义一个贪心算法函数，用于将商品尽可能高效地放入包装箱中
+    """贪心算法核心逻辑"""
+    # 预处理：若为冷冻订单，添加两个冰块
 
-    # 按剩余空间潜力排序箱子（优先小体积且高瘦型）
-    boxes_sorted = sorted(boxes,
-        key=lambda b: (b.volume, -min(b.l, b.w, b.h)))
-    boxes_sorted = [x for x in boxes_sorted
-                   if x.volume >= sum(item.volume for item in items)]
+    items, boxes = preprocess_order(items,boxes)
 
-    # 按体积和最大边长综合排序商品（优先大体积且立方体型）
-    items_sorted = sorted(items,
-        key=lambda x: (-x.volume, -max(x.l, x.w, x.h)))
+
+    # 按体积从小到大对包装箱进行排序，以便优先使用体积较小的包装箱
+    boxes_sorted = sorted(boxes, key=lambda b: b.volume)
+    boxes_sorted = [x for x in boxes_sorted if x.volume > sum([item.volume for item in items])]
+    # 按体积从大到小对商品进行排序，以便优先放入体积较大的商品
+    items_sorted = sorted(items, key=lambda x: x.volume, reverse=True)
 
     for box in boxes_sorted:
-        # 初始化每个箱子的可用位置和已放置物品
-        box.available_positions = [(0, 0, 0)]
-        box.placed_items = []
-        unplaced = items_sorted.copy()
+        for item in items_sorted:
+            orientations = sorted(item.generate_orientations(),key=lambda x: (x[0],x[1],x[2]),reverse=True)
 
-        # 分层放置策略：优先填满低层再升高
-        while unplaced:
-            lowest_z = min(pos[2] for pos in box.available_positions)
-            layer_positions = [pos for pos in box.available_positions
-                              if pos[2] == lowest_z]
+            for (l,w,h) in orientations:
+                for pos in sorted(box.available_positions,key=lambda x: (x[2],x[1],x[0])):
+                    x,y,z = pos
+                    if x + l > box.l or y + w > box.w or z + h > box.h:
+                        continue
 
-            # 在当前层选择最适合物品
-            placed = False
-            for pos in sorted(layer_positions,
-                            key=lambda p: (p[1], p[0])):  # 优先靠前的y轴
-                for item in list(unplaced):  # 改为直接遍历物品
-                    # 生成所有可能方向，优先接近立方体的方向
-                    orientations = sorted(item.generate_orientations(),
-                        key=lambda dim: (-min(dim), -sum(dim)))
+                    overlap = False
+                    for placed_item in box.placed_items:
+                        px,py,pz = placed_item.positions
+                        pl,pw,ph = placed_item.orientations
+                        if not (x + l <= px or x >= px + pl or
+                                y + w <= py or y >= py + pw or
+                                z + h <= pz or z >= pz + ph):
+                            overlap = True
+                            break
 
-                    for (l, w, h) in orientations:
-                        if (pos[0]+l <= box.l and
-                            pos[1]+w <= box.w and
-                            pos[2]+h <= box.h):
+                    if not overlap:
+                        item.positions = (x,y,z)
+                        item.orientations = (l,w,h)
+                        box.placed_items.append(item)
 
-                            # 三维碰撞检测优化
-                            collision = any(
-                                pos[0] < placed_pos[0]+placed_l and
-                                pos[0]+l > placed_pos[0] and
-                                pos[1] < placed_pos[1]+placed_w and
-                                pos[1]+w > placed_pos[1] and
-                                pos[2] < placed_pos[2]+placed_h and
-                                pos[2]+h > placed_pos[2]
-                                for (placed_pos, (placed_l, placed_w, placed_h)) in
-                                [(i.positions, i.orientations) for i in box.placed_items]
-                            )
+                        box.available_positions.remove(pos)
 
-                            if not collision:
-                                # 更新物品状态
-                                item.positions = pos
-                                item.orientations = (l, w, h)
-                                box.placed_items.append(item)
+                        new_available_positions=[]
+                        if x + l <= box.l: new_available_positions.append((x + l, y, z))
+                        if y + w <= box.w: new_available_positions.append((x, y + w, z))
+                        if z + h <= box.h: new_available_positions.append((x, y, z + h))
 
-                                # 移除已用空间，生成新候选位置
-                                box.available_positions.remove(pos)
-                                new_positions = [
-                                    (pos[0]+l, pos[1], pos[2]),
-                                    (pos[0], pos[1]+w, pos[2]),
-                                    (pos[0], pos[1], pos[2]+h)
-                                ]
-                                box.available_positions += [
-                                    p for p in new_positions
-                                    if p[0] < box.l and p[1] < box.w and p[2] < box.h
-                                ]
+                        box.available_positions.extend(new_available_positions)
+                        box.available_positions = sorted(list(set(box.available_positions)), key=lambda x : (x[2],x[1],x[0]))
 
-                                # 空间位置去重排序
-                                box.available_positions = sorted(
-                                    list(set(box.available_positions)),
-                                    key=lambda x: (x[2], x[1], x[0])
-                                )
+                        item.is_placed = True
+                        break
+                if item.is_placed:
+                    break
 
-                                unplaced.remove(item)  # 改为直接移除物品
-                                placed = True
-                                break
-                        if placed: break
-                    if placed: break
-                if placed: break
-            if not placed: break  # 当前层无法放置更多
+            if not item.is_placed:
+                box.is_available = False
+                break
 
-        if not unplaced:
-            utilization = sum(i.volume for i in box.placed_items) / box.volume * 100
-            return box, round(utilization, 2)
-
-    return None, 0
-
-def check_collision(box, x, y, z, l, w, h):
-    """改进的碰撞检测算法，考虑三维空间重叠"""
-    for placed_item in box.placed_items:
-        px, py, pz = placed_item.positions
-        pl, pw, ph = placed_item.orientations
-        if not (x + l <= px or x >= px + pl or
-                y + w <= py or y >= py + pw or
-                z + h <= pz or z >= pz + ph):
-            return True
-    return False
-
+        if box.is_available:
+            used_volume = sum(x.volume for x in box.placed_items)
+            utilization = used_volume / box.volume * 100
+            return box, utilization
+    return None, 0,0
 
 if __name__=='__main__':
     with open('box_inf.txt', 'r',encoding='utf-8') as f:
@@ -182,7 +144,7 @@ if __name__=='__main__':
             box = Box(inf[0].strip("'"),float(inf[1]),float(inf[2]),float(inf[3]),True,[(0,0,0)])
 
         boxs.append(box)
-    for i in range(5):
+    for i in range(8):
         if data.iloc[i]['TL'] == '冷冻':
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), True)
         else:
@@ -191,7 +153,7 @@ if __name__=='__main__':
         items.append(item)
 
     chosen_box, utilization = greedy_pack(items, boxs)
-    print(f"选择的箱子编号: {chosen_box.id}, 箱子的容量: {chosen_box.volume}, 已放入的商品数量: {len(chosen_box.placed_items)},已放入的商品体积: {sum([item.volume for item in chosen_box.placed_items])}, 冷冻容器标志: {chosen_box.is_used_for_frozen},utilization: {utilization:.2f}%")
+    print(f"选择的箱子编号: {chosen_box.id}, 箱子的容量: {chosen_box.volume}, 已放入的商品数量: {len(chosen_box.placed_items)},utilization: {utilization:.2f}%")
 
 
 
