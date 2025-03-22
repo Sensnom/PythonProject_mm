@@ -55,6 +55,26 @@ def preprocess_order(items, boxes):
 def merge_space(free_regions):
     pass
 
+def block_merge(items):
+    pass
+
+
+def check_overlap(pos1, dims1, pos2, dims2):
+    """检查两个物品是否重叠"""
+    x1, y1, z1 = pos1
+    w1, h1, d1 = dims1
+    x2, y2, z2 = pos2
+    w2, h2, d2 = dims2
+
+    return not (
+            x1 + w1 <= x2 or
+            x2 + w2 <= x1 or
+            y1 + h1 <= y2 or
+            y2 + h2 <= y1 or
+            z1 + d1 <= z2 or
+            z2 + d2 <= z1
+    )
+
 
 def layout_items(items, box):
     """核心装箱布局算法（带空间分割策略）"""
@@ -74,56 +94,79 @@ def layout_items(items, box):
             r_pos = region['pos']  # 区域起始坐标
             r_dims = region['dims']  # 区域尺寸
 
+            # 检查是否与已放置的物品重叠
+            overlap = False
+            for used_item in box.used_space:
+                if check_overlap(r_pos, item.dims, used_item['pos'], used_item['dims']):
+                    overlap = True
+                    break
+
+            if overlap:
+                continue
+
             # 生成物品所有可能方向，并按底面积和高度排序（优先大底面积方向）
-            for dim in sorted(itertools.permutations(item.dims),key=lambda d: (-d[0]*d[1], -d[2])):
+            for dim in sorted(itertools.permutations(item.dims),
+                              key=lambda d: (-d[0] * d[1], d[2])):  # 优先选择底面积大的方向
                 # 检查当前方向是否适合当前区域
                 if all(d <= rd for d, rd in zip(dim, r_dims)):
                     # 记录物品放置信息
-                    item.position = r_pos
+                    new_pos = (
+                        r_pos[0],
+                        r_pos[1],
+                        r_pos[2]
+                    )
+
+
+                    item.position = new_pos
                     item.orientation = dim
+
                     box.used_space.append({
-                        'pos': r_pos,
+                        'pos': new_pos,
                         'dims': dim,
                         'item': item
                     })
 
-                    # 空间分割处理（生成三个方向的剩余空间）
+                    # 空间分割处理
                     new_regions = []
-                    remaining = (  # 计算各方向剩余尺寸
-                        r_dims[0] - dim[0],
-                        r_dims[1] - dim[1],
-                        r_dims[2] - dim[2]
-                    )# 是否应该将剩余空间的各个维度进行排列组合，以允许更灵活的放置？
 
-                    # X轴方向剩余空间（右侧空间）
-                    if remaining[0] > 0:
+                    # X方向剩余空间
+                    if r_dims[0] - dim[0] > 0:
                         new_regions.append({
-                            'pos': (r_pos[0]+dim[0], r_pos[1], r_pos[2]),
-                            'dims': (remaining[0], r_dims[1], r_dims[2])
+                            'pos': (r_pos[0] + dim[0], r_pos[1], r_pos[2]),
+                            'dims': (r_dims[0] - dim[0], r_dims[1], r_dims[2])
                         })
-                    # Y轴方向剩余空间（前方空间）
-                    if remaining[1] > 0:
+
+                    # Y方向剩余空间
+                    if r_dims[1] - dim[1] > 0:
                         new_regions.append({
-                            'pos': (r_pos[0], r_pos[1]+dim[1], r_pos[2]),
-                            'dims': (dim[0], remaining[1], r_dims[2])
+                            'pos': (r_pos[0], r_pos[1] + dim[1], r_pos[2]),
+                            'dims': (dim[0], r_dims[1] - dim[1], r_dims[2])
                         })
-                    # Z轴方向剩余空间（上方空间）
-                    if remaining[2] > 0:
+
+                    # Z方向剩余空间
+                    if r_dims[2] - dim[2] > 0:
                         new_regions.append({
-                            'pos': (r_pos[0], r_pos[1], r_pos[2]+dim[2]),
-                            'dims': (dim[0], dim[1], remaining[2])
+                            'pos': (r_pos[0], r_pos[1], r_pos[2] + dim[2]),
+                            'dims': (dim[0], dim[1], r_dims[2] - dim[2])
                         })
 
                     # 更新可用区域列表
-                    del free_regions[i]  # 移除已使用区域
-                    free_regions.extend(new_regions)  # 添加新分割区域
-                    placed = True  # 标记已成功放置
-                    break  # 退出方向循环
+                    del free_regions[i]
+                    # 过滤掉太小的区域，避免碎片化
+                    min_volume = min(i.volume for i in items)
+                    new_regions = [r for r in new_regions
+                                   if r['dims'][0] * r['dims'][1] * r['dims'][2] >= min_volume]
+                    free_regions.extend(new_regions)
+
+                    placed = True
+                    break
 
             if placed:
-                break  # 退出区域循环
+                break
+
         if not placed:
             return False  # 放置失败终止装箱
+
     return True  # 所有物品成功放置
 
 
@@ -255,7 +298,7 @@ if __name__=='__main__':
             box = Box(inf[0].strip("'"),float(inf[1]),float(inf[2]),float(inf[3]),True)
 
         boxes.append(box)
-    for i in range(9):
+    for i in range(7):
         if data.iloc[i]['TL'] == '冷冻':
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), True)
         else:
