@@ -189,21 +189,21 @@ def calculate_energy(box, items):
     ) if items else 0
 
     dim_fill_rate = max_coord_x / box.dims[0]* max_coord_y / box.dims[1]* max_coord_z / box.dims[2]
-    # 高度差惩罚项（计算物品高度差）
-    # 除了计算X，Y，Z轴方向最大延伸长度占比，还应该计算并选择能够最大程度减小高度差的放置方案，使得物品尽可能紧凑。
-    z_positions = [i.position[2]+i.orientation[2] for i in items]
-    z_positions_max = max(z_positions) if z_positions else 0
-    z_positions_min = min(z_positions) if z_positions else 0
-    z_positions_std = np.std(z_positions) if z_positions else 0
-
-    # 稳定性惩罚项（计算物品稳定性）
-    # 避免除数为0的情况
-    range_z_positions = z_positions_max - z_positions_min if z_positions_max != z_positions_min else 1
-    # 归一化标准差
-    z_positions_std_normalized = z_positions_std / range_z_positions if range_z_positions > 0 else 0
+    # # 高度差惩罚项（计算物品高度差）
+    # # 除了计算X，Y，Z轴方向最大延伸长度占比，还应该计算并选择能够最大程度减小高度差的放置方案，使得物品尽可能紧凑。
+    # z_positions = [i.position[2]+i.orientation[2] for i in items]
+    # z_positions_max = max(z_positions) if z_positions else 0
+    # z_positions_min = min(z_positions) if z_positions else 0
+    # z_positions_std = np.std(z_positions) if z_positions else 0
+    #
+    # # 稳定性惩罚项（计算物品稳定性）
+    # # 避免除数为0的情况
+    # range_z_positions = z_positions_max - z_positions_min if z_positions_max != z_positions_min else 1
+    # # 归一化标准差
+    # z_positions_std_normalized = z_positions_std / range_z_positions if range_z_positions > 0 else 0
 
     # 综合能量计算
-    return (used_volume / total_volume) * 0.6  + dim_fill_rate * 0.2 + (z_positions_std_normalized) *0.2 , box
+    return (used_volume / total_volume) * 0.7  + dim_fill_rate * 0.3, box
 
 
 
@@ -330,8 +330,8 @@ for _ in range(10):
     best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
     if best_box and best_order:
         print(f"最佳容器: {best_box.id},容器体积: {best_box.volume:.1f}cm^3,使用的体积: {used_volume:.1f}cm^3, 利用率: {utilization:.1f}%")
-    #     print("物品放置顺序:")
-    #     for i in best_order:
-    #         print(f"尺寸: {i.get_current_size()} 位置: {i.position}")
-    # else:
-    #     print("无可行解")
+        print("物品放置顺序:")
+        for i in best_order:
+            print(f"尺寸: {i.get_current_size()} 位置: {i.position}")
+    else:
+        print("无可行解")
