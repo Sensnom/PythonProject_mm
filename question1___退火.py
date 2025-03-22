@@ -235,7 +235,7 @@ def neighbor_generator(current_order, mutation_rate=0.5):
 
     return new_order
 
-def simulated_annealing_pack(items, boxes, initial_temp=1000, cooling_rate=0.995, final_temp=1):
+def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995, final_temp=1):
     """模拟退火主算法"""
     items, boxes = preprocess_order(items, boxes)
 
@@ -254,6 +254,8 @@ def simulated_annealing_pack(items, boxes, initial_temp=1000, cooling_rate=0.995
         # 生成邻居状态
         if random.random()*current_temp >0.5:
             new_order = neighbor_generator(current_order)
+        else:
+            new_order = current_order.copy()
 
         # 尝试新布局并计算能量
         for box in boxes:
@@ -319,16 +321,31 @@ if __name__=='__main__':
             box = Box(inf[0].strip("'"),float(inf[1]),float(inf[2]),float(inf[3]),True)
 
         boxes.append(box)
-    for i in range(11):
-        if data.iloc[i]['TL'] == '冷冻':
+    my_chosen = input("要选择冷冻物品还是常温的呢？（冷冻：0/常温：1）：")
+    if my_chosen == '0':
+        chosen_samples = random.sample(range(len(cold_item)), random.randint(2, 9))
+        for i in chosen_samples:
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), True)
-        else:
+            print(f"冷冻物品: {data.iloc[i].to_string()}")
+            items.append(item)
+    elif my_chosen == '1':
+        chosen_samples = random.sample(range(len(common_item)), random.randint(2, 9))
+        for i in chosen_samples:
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), False)
+            print(f"常规物品: {data.iloc[i].to_string()}")
+            items.append(item)
+    else:
+        print("输入错误")
+        exit()
 
-        items.append(item)
-for _ in range(10):
-    best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
+    history = []
+    for _ in range(10):
+        best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
+        history.append((best_box,best_order,used_volume, utilization))
+    history = sorted(history, key=lambda x: x[3], reverse=True)
+    best_box,best_order,used_volume, utilization = history[0]
     if best_box and best_order:
+        print("=="*50)
         print(f"最佳容器: {best_box.id},容器体积: {best_box.volume:.1f}cm^3,使用的体积: {used_volume:.1f}cm^3, 利用率: {utilization:.1f}%")
         print("物品放置顺序:")
         for i in best_order:
