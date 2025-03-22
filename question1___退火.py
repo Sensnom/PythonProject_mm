@@ -3,6 +3,7 @@ import math
 import random
 import pandas as pd
 import numpy as np
+# random.seed(247555)
 
 data = pd.read_excel('附件2-商品尺寸.xlsx')
 
@@ -65,19 +66,16 @@ def check_overlap(pos1, dims1, pos2, dims2):
     w1, h1, d1 = dims1
     x2, y2, z2 = pos2
     w2, h2, d2 = dims2
-
-    return not (
-            x1 + w1 <= x2 or
-            x2 + w2 <= x1 or
-            y1 + h1 <= y2 or
-            y2 + h2 <= y1 or
-            z1 + d1 <= z2 or
-            z2 + d2 <= z1
-    )
+    x_overlap =x2<x1+w1 if x1<=x2  else x1<x2+w2
+    y_overlap = y2<y1+h1 if y1<=y2 else y1<y2+h2
+    z_overlap = z2<z1+d1 if z1<=z2 else z1<z2+d2
+    return x_overlap and y_overlap and z_overlap
 
 
 def layout_items(items, box):
     """核心装箱布局算法（带空间分割策略）"""
+    if not box:
+        return
     box.used_space = []  # 重置容器装载状态
     # 初始化可用区域列表，起始为整个容器空间
     free_regions = [{'pos': (0,0,0), 'dims': box.dims}]
@@ -94,20 +92,21 @@ def layout_items(items, box):
             r_pos = region['pos']  # 区域起始坐标
             r_dims = region['dims']  # 区域尺寸
 
-            # 检查是否与已放置的物品重叠
-            overlap = False
-            for used_item in box.used_space:
-                if check_overlap(r_pos, item.dims, used_item['pos'], used_item['dims']):
-                    overlap = True
-                    break
-
-            if overlap:
-                continue
 
             # 生成物品所有可能方向，并按底面积和高度排序（优先大底面积方向）
             for dim in sorted(itertools.permutations(item.dims),
                               key=lambda d: (-d[0] * d[1], d[2])):  # 优先选择底面积大的方向
                 # 检查当前方向是否适合当前区域
+                # 检查是否与已放置的物品重叠
+                overlap = False
+                for used_item in box.used_space:
+                    if check_overlap(r_pos, dim, used_item['pos'], used_item['dims']):
+                        overlap = True
+                        break
+
+                if overlap:
+                    continue
+
                 if all(d <= rd for d, rd in zip(dim, r_dims)):
                     # 记录物品放置信息
                     new_pos = (
@@ -166,6 +165,7 @@ def layout_items(items, box):
                 break
 
         if not placed:
+            box.used_space = []  # 重置容器装载状态
             return False  # 放置失败终止装箱
 
     return True  # 所有物品成功放置
@@ -203,7 +203,7 @@ def calculate_energy(box, items):
     # z_positions_std_normalized = z_positions_std / range_z_positions if range_z_positions > 0 else 0
 
     # 综合能量计算
-    return (used_volume / total_volume) * 0.7  + dim_fill_rate * 0.3, box
+    return (used_volume / total_volume) * 0.6  + dim_fill_rate * 0.4, box
 
 
 
@@ -235,10 +235,11 @@ def neighbor_generator(current_order, mutation_rate=0.5):
 
     return new_order
 
-def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995, final_temp=1):
+def simulated_annealing_pack(items, boxes, initial_temp=1000, cooling_rate=0.995, final_temp=1):
     """模拟退火主算法"""
-    items, boxes = preprocess_order(items, boxes)
-
+    for i in items:
+        i.position = (0, 0, 0)  # 重置物品位置信息
+        i.orientation = (i.dims[0], i.dims[1], i.dims[2])
     # 选择最小可用容器（体积刚好满足物品总体积）
     boxes = sorted([b for b in boxes if b.volume >= sum(i.volume for i in items)],key=lambda x: x.volume)
     if not boxes:
@@ -248,7 +249,7 @@ def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995,
     best_order = current_order.copy()  # 记录最佳状态
     best_energy = 0  # 最佳能量值
     current_temp = initial_temp  # 初始化温度
-    smallest_box = boxes[-1]  # 选择最小可用容器
+    smallest_box = None # 选择最小可用容器
     # 退火循环
     while current_temp > final_temp:
         # 生成邻居状态
@@ -265,7 +266,8 @@ def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995,
                 break
             else:
                 new_energy = 0
-                new_box = boxes[-1]
+                new_box = None
+
         for box in boxes:
             success = layout_items(current_order, box)
             if success:
@@ -273,7 +275,7 @@ def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995,
                 break
             else:
                 current_energy = 0
-                current_box = boxes[-1]
+                current_box = None
 
         if new_energy > current_energy:
             current_energy = new_energy
@@ -297,11 +299,13 @@ def simulated_annealing_pack(items, boxes, initial_temp=200, cooling_rate=0.995,
         current_temp *= cooling_rate  # 温度衰减
 
     # 应用最佳布局方案
-    layout_items(best_order, smallest_box)
-    used_volume = sum(i.volume for i in best_order)
-    utilization = used_volume / smallest_box.volume * 100
-    return smallest_box,best_order,used_volume, utilization  # 返回最优容器和利用率
-
+    if smallest_box:
+        layout_items(best_order, smallest_box)
+        used_volume = sum(i.volume for i in best_order)
+        utilization = used_volume / smallest_box.volume * 100
+        return smallest_box,best_order,used_volume, utilization  # 返回最优容器和利用率
+    else:
+        return None, None,0, 0  # 无可用容器直接返回
 
 
 if __name__=='__main__':
@@ -323,28 +327,30 @@ if __name__=='__main__':
         boxes.append(box)
     my_chosen = input("要选择冷冻物品还是常温的呢？（冷冻：0/常温：1）：")
     if my_chosen == '0':
-        chosen_samples = random.sample(range(len(cold_item)), random.randint(2, 9))
+        chosen_samples = random.sample(range(len(cold_item)), random.randint(4, 9))
         for i in chosen_samples:
-            item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), True)
-            print(f"冷冻物品: {data.iloc[i].to_string()}")
+            item = Item(float(cold_item.iloc[i]['L']), float(cold_item.iloc[i]['W']), float(cold_item.iloc[i]['H']), True)
+            print(f"冷冻物品: {cold_item.iloc[i].to_string()}")
             items.append(item)
     elif my_chosen == '1':
-        chosen_samples = random.sample(range(len(common_item)), random.randint(2, 9))
+        chosen_samples = random.sample(range(len(common_item)), random.randint(4, 9))
         for i in chosen_samples:
-            item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), False)
-            print(f"常规物品: {data.iloc[i].to_string()}")
+            item = Item(float(common_item.iloc[i]['L']), float(common_item.iloc[i]['W']), float(common_item.iloc[i]['H']), False)
+            print(f"常规物品: {common_item.iloc[i].to_string()}")
             items.append(item)
     else:
         print("输入错误")
         exit()
 
+
     history = []
+    items, boxes = preprocess_order(items, boxes)
     for _ in range(10):
         best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
         history.append((best_box,best_order,used_volume, utilization))
     history = sorted(history, key=lambda x: x[3], reverse=True)
     best_box,best_order,used_volume, utilization = history[0]
-    if best_box and best_order:
+    if best_box:
         print("=="*50)
         print(f"最佳容器: {best_box.id},容器体积: {best_box.volume:.1f}cm^3,使用的体积: {used_volume:.1f}cm^3, 利用率: {utilization:.1f}%")
         print("物品放置顺序:")
