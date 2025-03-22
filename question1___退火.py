@@ -129,7 +129,7 @@ def layout_items(items, box):
                     # 空间分割处理
                     new_regions = []
 
-                    # X方向剩余空间
+                                        # X方向剩余空间
                     if r_dims[0] - dim[0] > 0:
                         new_regions.append({
                             'pos': (r_pos[0] + dim[0], r_pos[1], r_pos[2]),
@@ -140,15 +140,16 @@ def layout_items(items, box):
                     if r_dims[1] - dim[1] > 0:
                         new_regions.append({
                             'pos': (r_pos[0], r_pos[1] + dim[1], r_pos[2]),
-                            'dims': (dim[0], r_dims[1] - dim[1], r_dims[2])
+                            'dims': (r_dims[0], r_dims[1] - dim[1], r_dims[2])
                         })
 
                     # Z方向剩余空间
                     if r_dims[2] - dim[2] > 0:
                         new_regions.append({
                             'pos': (r_pos[0], r_pos[1], r_pos[2] + dim[2]),
-                            'dims': (dim[0], dim[1], r_dims[2] - dim[2])
+                            'dims': (r_dims[0], r_dims[1], r_dims[2] - dim[2])
                         })
+
 
                     # 更新可用区域列表
                     del free_regions[i]
@@ -175,14 +176,34 @@ def calculate_energy(box, items):
     used_volume = sum(i.volume for i in items)  # 已使用体积
     total_volume = box.volume  # 容器总容积
 
-    # 紧凑度惩罚项（计算X轴方向最大延伸长度占比）
-    max_coord = max(
+
+    # 紧凑度惩罚项（计算X，Y，Z轴方向最大延伸长度占比）
+    max_coord_x = max(
         i.position[0] + i.orientation[0] for i in items
     ) if items else 0
-    compact_penalty = max_coord / box.dims[0]  # 范围[0,1]
+    max_coord_y = max(
+        i.position[1] + i.orientation[1] for i in items
+    ) if items else 0
+    max_coord_z = max(
+        i.position[2] + i.orientation[2] for i in items
+    ) if items else 0
 
-    # 综合能量计算（体积利用率权重90% + 紧凑度权重10%）
-    return (used_volume / total_volume) * 0.9 + compact_penalty * 0.1, box
+    dim_fill_rate = max_coord_x / box.dims[0]* max_coord_y / box.dims[1]* max_coord_z / box.dims[2]
+    # 高度差惩罚项（计算物品高度差）
+    # 除了计算X，Y，Z轴方向最大延伸长度占比，还应该计算并选择能够最大程度减小高度差的放置方案，使得物品尽可能紧凑。
+    z_positions = [i.position[2]+i.orientation[2] for i in items]
+    z_positions_max = max(z_positions) if z_positions else 0
+    z_positions_min = min(z_positions) if z_positions else 0
+    z_positions_std = np.std(z_positions) if z_positions else 0
+
+    # 稳定性惩罚项（计算物品稳定性）
+    # 避免除数为0的情况
+    range_z_positions = z_positions_max - z_positions_min if z_positions_max != z_positions_min else 1
+    # 归一化标准差
+    z_positions_std_normalized = z_positions_std / range_z_positions if range_z_positions > 0 else 0
+
+    # 综合能量计算
+    return (used_volume / total_volume) * 0.6  + dim_fill_rate * 0.2 + (z_positions_std_normalized) *0.2 , box
 
 
 
@@ -194,7 +215,7 @@ def block_exchange(new_order, start, length, target):
     return new_order
 
 
-def neighbor_generator(current_order, mutation_rate=0.2):
+def neighbor_generator(current_order, mutation_rate=0.5):
     """邻居状态生成器（混合变异策略）"""
     new_order = current_order.copy()  # 复制当前状态
 
@@ -298,20 +319,19 @@ if __name__=='__main__':
             box = Box(inf[0].strip("'"),float(inf[1]),float(inf[2]),float(inf[3]),True)
 
         boxes.append(box)
-    for i in range(7):
+    for i in range(11):
         if data.iloc[i]['TL'] == '冷冻':
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), True)
         else:
             item = Item(float(data.iloc[i]['L']), float(data.iloc[i]['W']), float(data.iloc[i]['H']), False)
 
         items.append(item)
-best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
-
-
-if best_box and best_order:
-    print(f"最佳容器: {best_box.id},容器体积: {best_box.volume:.1f}cm^3,使用的体积: {used_volume:.1f}cm^3, 利用率: {utilization:.1f}%")
-    print("物品放置顺序:")
-    for i in best_order:
-        print(f"尺寸: {i.get_current_size()} 位置: {i.position}")
-else:
-    print("无可行解")
+for _ in range(10):
+    best_box,best_order,used_volume, utilization = simulated_annealing_pack(items, boxes)
+    if best_box and best_order:
+        print(f"最佳容器: {best_box.id},容器体积: {best_box.volume:.1f}cm^3,使用的体积: {used_volume:.1f}cm^3, 利用率: {utilization:.1f}%")
+    #     print("物品放置顺序:")
+    #     for i in best_order:
+    #         print(f"尺寸: {i.get_current_size()} 位置: {i.position}")
+    # else:
+    #     print("无可行解")
