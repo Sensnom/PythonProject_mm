@@ -253,6 +253,14 @@ def simulated_annealing_pack(items, boxes, initial_temp=1000, cooling_rate=0.995
     # 退火循环
     while current_temp > final_temp:
         # 生成邻居状态
+        if current_temp > 500:
+            cooling_rate = 0.97
+        elif current_temp > 100:
+            cooling_rate = 0.993
+        else:
+            cooling_rate = 0.999
+
+
         if random.random()*current_temp >0.5:
             new_order = neighbor_generator(current_order)
         else:
@@ -321,7 +329,6 @@ if __name__=='__main__':
             box = Box(inf[0].strip("'"),float(inf[1]),float(inf[2]),float(inf[3]),True)
 
         boxes.append(box)
-
     for order in range(5):
         items = []
         print('***'*50)
